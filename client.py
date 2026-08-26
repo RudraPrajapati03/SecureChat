@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 #
 # AFTER RENDER DEPLOY:
 # SERVER_URL = "wss://YOUR-SERVICE-NAME.onrender.com"
-SERVER_URL = "ws://127.0.0.1:5000"
+SERVER_URL = "wss://securechat-e0uw.onrender.com"
 
 
 def b64(data: bytes) -> str:
