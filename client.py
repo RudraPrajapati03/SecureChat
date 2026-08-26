@@ -124,9 +124,14 @@ class SecureChat:
 
         try:
             self.socket = websocket.create_connection(
-                SERVER_URL,
-                timeout=10
-            )
+            SERVER_URL,
+            timeout=20,
+            http_proxy_host=None,
+            http_proxy_port=None,
+            proxy_type=None
+        )
+
+            self.socket.settimeout(None)
 
             self.username = username
 
