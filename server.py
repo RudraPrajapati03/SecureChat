@@ -1,111 +1,164 @@
 import os
-import asyncio
 import json
-import websockets
 
-HOST = "0.0.0.0"
-PORT = int(os.environ.get("PORT", "5000"))
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import uvicorn
+
+
+app = FastAPI()
 
 users = {}
 clients = {}
-lock = asyncio.Lock()
+
+
+@app.get("/")
+async def home():
+    return {
+        "status": "SecureChat server is running",
+        "websocket": "/ws"
+    }
 
 
 async def send_json(websocket, data):
-    await websocket.send(json.dumps(data))
+    await websocket.send_text(json.dumps(data))
 
 
 async def broadcast_user_list():
-    async with lock:
-        packet = {"type": "users", "users": list(users.keys())}
-        connections = list(clients.values())
+    packet = {
+        "type": "users",
+        "users": list(users.keys())
+    }
 
-    for websocket in connections:
+    for websocket in list(clients.values()):
         try:
             await send_json(websocket, packet)
         except Exception:
             pass
 
 
-async def handle_client(websocket):
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+
+    await websocket.accept()
+
     username = None
 
     try:
-        async for raw_message in websocket:
+
+        while True:
+
+            raw_message = await websocket.receive_text()
+
             if not raw_message.strip():
                 continue
 
             data = json.loads(raw_message)
+
             msg_type = data.get("type")
 
+            # ---------------- REGISTER ----------------
+
             if msg_type == "register":
+
                 requested = data.get("username", "").strip()
 
                 if not requested or len(requested) > 32:
+
                     await send_json(
                         websocket,
-                        {"type": "error", "message": "Invalid username."}
+                        {
+                            "type": "error",
+                            "message": "Invalid username."
+                        }
                     )
+
                     continue
 
-                async with lock:
-                    if requested in users:
-                        await send_json(
-                            websocket,
-                            {
-                                "type": "error",
-                                "message": "Username already in use."
-                            }
-                        )
-                        continue
+                if requested in users:
 
-                    username = requested
-                    users[username] = {
-                        "x25519": data["x25519"],
-                        "ed25519": data["ed25519"],
-                    }
-                    clients[username] = websocket
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "message": "Username already in use."
+                        }
+                    )
+
+                    continue
+
+                username = requested
+
+                users[username] = {
+                    "x25519": data["x25519"],
+                    "ed25519": data["ed25519"]
+                }
+
+                clients[username] = websocket
 
                 await send_json(
                     websocket,
-                    {"type": "registered", "username": username}
+                    {
+                        "type": "registered",
+                        "username": username
+                    }
                 )
+
                 await broadcast_user_list()
 
+
+            # ---------------- GET PUBLIC KEY ----------------
+
             elif msg_type == "get_key":
+
                 target = data.get("target")
 
-                async with lock:
-                    user = users.get(target)
+                user = users.get(target)
 
                 if user:
+
                     await send_json(
                         websocket,
                         {
                             "type": "public_key",
                             "username": target,
                             "x25519": user["x25519"],
-                            "ed25519": user["ed25519"],
+                            "ed25519": user["ed25519"]
                         }
                     )
+
                 else:
+
                     await send_json(
                         websocket,
-                        {"type": "error", "message": "User not found."}
+                        {
+                            "type": "error",
+                            "message": "User not found."
+                        }
                     )
 
+
+            # ---------------- MESSAGE ----------------
+
             elif msg_type == "message":
+
                 target = data.get("target")
 
-                async with lock:
-                    target_websocket = clients.get(target)
+                target_websocket = clients.get(target)
 
-                # The server only forwards the encrypted packet.
-                # It does not possess the private keys needed to decrypt it.
+                # Server only forwards encrypted packet.
+                # Server cannot decrypt the message.
+
                 if target_websocket:
+
                     try:
-                        await send_json(target_websocket, data)
+
+                        await send_json(
+                            target_websocket,
+                            data
+                        )
+
                     except Exception:
+
                         await send_json(
                             websocket,
                             {
@@ -113,7 +166,9 @@ async def handle_client(websocket):
                                 "message": "Could not deliver message."
                             }
                         )
+
                 else:
+
                     await send_json(
                         websocket,
                         {
@@ -122,30 +177,38 @@ async def handle_client(websocket):
                         }
                     )
 
-    except (websockets.exceptions.ConnectionClosed, OSError, json.JSONDecodeError) as e:
-        print(f"Client disconnected/error: {e}")
+
+    except (
+        WebSocketDisconnect,
+        json.JSONDecodeError,
+        KeyError
+    ) as e:
+
+        print(
+            f"Client {username} disconnected/error: {e}"
+        )
+
 
     finally:
+
         if username:
-            async with lock:
-                users.pop(username, None)
-                clients.pop(username, None)
+
+            users.pop(username, None)
+            clients.pop(username, None)
 
             await broadcast_user_list()
 
 
-async def main():
-    print(f"SecureChat WebSocket server running on {HOST}:{PORT}")
-
-    async with websockets.serve(
-        handle_client,
-        HOST,
-        PORT,
-        ping_interval=20,
-        ping_timeout=20,
-    ):
-        await asyncio.Future()
-
+# ---------------- START SERVER ----------------
 
 if __name__ == "__main__":
-    asyncio.run(main())
+
+    port = int(
+        os.environ.get("PORT", "10000")
+    )
+
+    uvicorn.run(
+        "server:app",
+        host="0.0.0.0",
+        port=port
+    )
