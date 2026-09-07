@@ -1,5 +1,4 @@
 import os
-import websocket
 import json
 import base64
 import hashlib
@@ -7,6 +6,7 @@ import threading
 import tkinter as tk
 
 from tkinter import messagebox, scrolledtext
+import websocket
 
 from cryptography.hazmat.primitives.asymmetric import x25519, ed25519
 from cryptography.hazmat.primitives import serialization
@@ -15,12 +15,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
-# LOCAL TEST:
-# SERVER_URL = "ws://127.0.0.1:5000"
-#
-# AFTER RENDER DEPLOY:
-# SERVER_URL = "wss://YOUR-SERVICE-NAME.onrender.com"
-SERVER_URL = "wss://securechat-e8uw.onrender.com/ws"
+# Railway will provide the public HTTPS domain.
+# Replace YOUR-RAILWAY-DOMAIN with your actual Railway domain.
+SERVER_URL = "wss://YOUR-RAILWAY-DOMAIN.up.railway.app/ws"
 
 
 def b64(data: bytes) -> str:
@@ -80,15 +77,20 @@ class SecureChat:
         self.user_entry = tk.Entry(user_frame, width=20)
         self.user_entry.pack(side="left", padx=6)
 
-        tk.Button(user_frame, text="Select User", command=self.set_user).pack(side="left")
-        self.selected_label = tk.Label(user_frame, text="No recipient selected")
+        tk.Button(
+            user_frame, text="Select User", command=self.set_user
+        ).pack(side="left")
+
+        self.selected_label = tk.Label(
+            user_frame, text="No recipient selected"
+        )
         self.selected_label.pack(side="left", padx=15)
 
         self.chat = scrolledtext.ScrolledText(
             self.root,
             state="disabled",
             wrap=tk.WORD,
-            font=("Segoe UI", 10)
+            font=("Segoe UI", 10),
         )
         self.chat.pack(fill="both", expand=True, padx=12, pady=8)
 
@@ -97,19 +99,18 @@ class SecureChat:
 
         self.message_entry = tk.Entry(bottom, font=("Segoe UI", 10))
         self.message_entry.pack(side="left", fill="x", expand=True)
-        self.message_entry.bind("<Return>", lambda _event: self.send_message())
+        self.message_entry.bind(
+            "<Return>", lambda _event: self.send_message()
+        )
 
         tk.Button(
-            bottom,
-            text="Send",
-            width=10,
-            command=self.send_message
+            bottom, text="Send", width=10, command=self.send_message
         ).pack(side="right", padx=(8, 0))
 
         security = tk.Label(
             self.root,
             text="E2E design: encryption/decryption happens on the endpoints.",
-            anchor="w"
+            anchor="w",
         )
         security.pack(fill="x", padx=12, pady=(0, 8))
 
@@ -124,14 +125,9 @@ class SecureChat:
 
         try:
             self.socket = websocket.create_connection(
-            SERVER_URL,
-            timeout=20,
-            http_proxy_host=None,
-            http_proxy_port=None,
-            proxy_type=None
-        )
-
-            self.socket.settimeout(None)
+                SERVER_URL,
+                timeout=10,
+            )
 
             self.username = username
 
@@ -144,7 +140,7 @@ class SecureChat:
 
             threading.Thread(
                 target=self.receive_loop,
-                daemon=True
+                daemon=True,
             ).start()
 
             self.status.config(text="Connected", fg="green")
@@ -166,23 +162,24 @@ class SecureChat:
     def receive_loop(self):
         try:
             while True:
-                message = self.socket.recv()
+                raw = self.socket.recv()
 
-                if not message:
+                if raw is None:
                     break
 
-                self.process_message(json.loads(message))
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+
+                if raw.strip():
+                    self.process_message(json.loads(raw))
 
         except Exception as e:
             self.add_chat(f"[Network] Connection closed: {e}")
-
         finally:
             self.socket = None
             self.root.after(
-                0,
-                lambda: self.status.config(
-                    text="Disconnected",
-                    fg="red"
+                0, lambda: self.status.config(
+                    text="Disconnected", fg="red"
                 )
             )
 
@@ -190,7 +187,9 @@ class SecureChat:
         msg_type = data.get("type")
 
         if msg_type == "registered":
-            self.add_chat(f"[System] Logged in as {data['username']}.")
+            self.add_chat(
+                f"[System] Logged in as {data['username']}."
+            )
 
         elif msg_type == "users":
             online = [
@@ -198,8 +197,8 @@ class SecureChat:
                 if u != self.username
             ]
             self.add_chat(
-                "[Online] " +
-                (", ".join(online) if online else "No other users online.")
+                "[Online] "
+                + (", ".join(online) if online else "No other users online.")
             )
 
         elif msg_type == "public_key":
@@ -229,8 +228,7 @@ class SecureChat:
 
         elif msg_type == "error":
             self.add_chat(
-                "[Server] " +
-                data.get("message", "Unknown error.")
+                "[Server] " + data.get("message", "Unknown error.")
             )
 
     def set_user(self):
@@ -240,13 +238,15 @@ class SecureChat:
             return
 
         self.current_user = username
-        self.selected_label.config(text=f"Recipient: {username}")
+        self.selected_label.config(
+            text=f"Recipient: {username}"
+        )
         self.add_chat(f"[System] Selected {username}.")
 
         if username not in self.user_keys:
             self.send_json({
                 "type": "get_key",
-                "target": username
+                "target": username,
             })
 
     def derive_key(self, shared_secret: bytes) -> bytes:
@@ -254,18 +254,24 @@ class SecureChat:
             algorithm=hashes.SHA256(),
             length=32,
             salt=None,
-            info=b"SecureChat-v1"
+            info=b"SecureChat-v1",
         ).derive(shared_secret)
 
     def encrypt_message(self, plaintext: str, target_key: str):
-        receiver_public = x25519.X25519PublicKey.from_public_bytes(
-            unb64(target_key)
+        receiver_public = (
+            x25519.X25519PublicKey.from_public_bytes(
+                unb64(target_key)
+            )
         )
 
-        ephemeral_private = x25519.X25519PrivateKey.generate()
+        ephemeral_private = (
+            x25519.X25519PrivateKey.generate()
+        )
         ephemeral_public = ephemeral_private.public_key()
 
-        shared_secret = ephemeral_private.exchange(receiver_public)
+        shared_secret = ephemeral_private.exchange(
+            receiver_public
+        )
         aes_key = self.derive_key(shared_secret)
 
         nonce = os.urandom(12)
@@ -273,19 +279,21 @@ class SecureChat:
         ciphertext = AESGCM(aes_key).encrypt(
             nonce,
             plaintext.encode("utf-8"),
-            None
+            None,
         )
 
         signed_data = (
-            raw_public_bytes(ephemeral_public) +
-            nonce +
-            ciphertext
+            raw_public_bytes(ephemeral_public)
+            + nonce
+            + ciphertext
         )
 
         signature = self.sign_private.sign(signed_data)
 
         return {
-            "ephemeral": b64(raw_public_bytes(ephemeral_public)),
+            "ephemeral": b64(
+                raw_public_bytes(ephemeral_public)
+            ),
             "nonce": b64(nonce),
             "ciphertext": b64(ciphertext),
             "signature": b64(signature),
@@ -297,16 +305,14 @@ class SecureChat:
         if sender not in self.user_keys:
             self.send_json({
                 "type": "get_key",
-                "target": sender
+                "target": sender,
             })
-
             self.add_chat(
                 f"[Security] Fetching {sender}'s public key..."
             )
-
             self.root.after(
                 500,
-                lambda d=data: self.decrypt_message(d)
+                lambda d=data: self.decrypt_message(d),
             )
             return
 
@@ -317,20 +323,20 @@ class SecureChat:
             signature = unb64(data["signature"])
 
             signing_data = (
-                ephemeral_bytes +
-                nonce +
-                ciphertext
+                ephemeral_bytes + nonce + ciphertext
             )
 
             sender_sign_public = (
                 ed25519.Ed25519PublicKey.from_public_bytes(
-                    unb64(self.user_keys[sender]["ed25519"])
+                    unb64(
+                        self.user_keys[sender]["ed25519"]
+                    )
                 )
             )
 
             sender_sign_public.verify(
                 signature,
-                signing_data
+                signing_data,
             )
 
             ephemeral_public = (
@@ -342,16 +348,17 @@ class SecureChat:
             shared_secret = self.x_private.exchange(
                 ephemeral_public
             )
-
             aes_key = self.derive_key(shared_secret)
 
             plaintext = AESGCM(aes_key).decrypt(
                 nonce,
                 ciphertext,
-                None
+                None,
             ).decode("utf-8")
 
-            self.add_chat(f"{sender}: {plaintext}")
+            self.add_chat(
+                f"{sender}: {plaintext}"
+            )
 
         except Exception as e:
             self.add_chat(
@@ -362,13 +369,15 @@ class SecureChat:
 
     def send_message(self):
         if not self.socket:
-            messagebox.showerror("Error", "Connect first.")
+            messagebox.showerror(
+                "Error", "Connect first."
+            )
             return
 
         if not self.current_user:
             messagebox.showerror(
                 "Error",
-                "Select a recipient first."
+                "Select a recipient first.",
             )
             return
 
@@ -379,12 +388,10 @@ class SecureChat:
 
         if self.current_user not in self.user_keys:
             self.pending_message = text
-
             self.send_json({
                 "type": "get_key",
-                "target": self.current_user
+                "target": self.current_user,
             })
-
             self.add_chat(
                 "[Security] Fetching recipient public key..."
             )
@@ -403,7 +410,7 @@ class SecureChat:
 
         encrypted = self.encrypt_message(
             text,
-            info["x25519"]
+            info["x25519"],
         )
 
         self.send_json({
@@ -435,7 +442,10 @@ class SecureChat:
     def add_chat(self, message):
         def update():
             self.chat.config(state="normal")
-            self.chat.insert(tk.END, message + "\n\n")
+            self.chat.insert(
+                tk.END,
+                message + "\n\n",
+            )
             self.chat.config(state="disabled")
             self.chat.see(tk.END)
 
