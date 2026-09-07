@@ -126,7 +126,7 @@ class SecureChat:
         try:
             self.socket = websocket.create_connection(
                 SERVER_URL,
-                timeout=10,
+                timeout=100,
             )
 
             self.username = username
