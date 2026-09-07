@@ -1,4 +1,4 @@
-# SecureChat — Railway Version
+# SecureChat — Render Version
 
 Educational end-to-end encrypted chat using Python.
 
@@ -21,22 +21,22 @@ SecureChat/
 └── README.md
 ```
 
-## Railway deployment
+## Render deployment
 
 1. Push this folder to a GitHub repository.
-2. In Railway, create a new project and deploy the GitHub repository.
-3. Railway should install dependencies from `requirements.txt`.
+2. In Render, create a new project and deploy the GitHub repository.
+3. Render should install dependencies from `requirements.txt`.
 4. Use this start command:
 
 ```bash
 uvicorn server:app --host 0.0.0.0 --port $PORT
 ```
 
-5. Generate a public Railway domain.
+5. Generate a public Render domain.
 6. Copy that domain into `client.py`:
 
 ```python
-SERVER_URL = "wss://YOUR-RAILWAY-DOMAIN.up.railway.app/ws"
+SERVER_URL = "wss://YOUR-RENDER-DOMAIN.onrender.com/ws"
 ```
 
 The `/ws` path is required.
