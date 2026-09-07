@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Railway will provide the public HTTPS domain.
 # Replace YOUR-RAILWAY-DOMAIN with your actual Railway domain.
-SERVER_URL = "wss://YOUR-RAILWAY-DOMAIN.up.railway.app/ws"
+SERVER_URL = "wss://YOUR-RENDER-DOMAIN.onrender.com/ws"
 
 
 def b64(data: bytes) -> str:
